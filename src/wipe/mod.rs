@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::Command;
 
@@ -32,7 +32,18 @@ pub fn overwrite_and_unlink(
         });
     }
 
-    let meta = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    if passes == 0 {
+        bail!("--passes must be at least 1");
+    }
+    // symlink_metadata: do not follow. Overwriting through a link would destroy
+    // the target while only the link is unlinked, i.e. a file the user never named.
+    let meta = fs::symlink_metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    if meta.file_type().is_symlink() {
+        bail!(
+            "refusing: {} is a symlink; overwrite the file it points to explicitly, or use --unlink-only to remove just the link",
+            path.display()
+        );
+    }
     if !meta.is_file() {
         bail!("not a regular file: {}", path.display());
     }
@@ -80,16 +91,21 @@ fn builtin_overwrite(path: &Path, passes: u32) -> Result<()> {
         .write(true)
         .open(path)
         .with_context(|| format!("open for write {}", path.display()))?;
+    let mut urandom =
+        File::open("/dev/urandom").context("open /dev/urandom for the random pass")?;
 
     let mut buf = vec![0u8; 64 * 1024];
     for pass in 0..passes {
         file.seek(SeekFrom::Start(0))?;
+        // random, then ones, then zeros; the last of three passes is zeros.
         let pattern = pass % 3;
         let mut remaining = len;
         while remaining > 0 {
             let chunk = std::cmp::min(remaining, buf.len() as u64) as usize;
             match pattern {
-                0 => fill_random(&mut buf[..chunk]),
+                0 => urandom
+                    .read_exact(&mut buf[..chunk])
+                    .context("reading /dev/urandom")?,
                 1 => buf[..chunk].fill(0xFF),
                 _ => buf[..chunk].fill(0x00),
             }
@@ -98,31 +114,7 @@ fn builtin_overwrite(path: &Path, passes: u32) -> Result<()> {
         }
         file.sync_all()?;
     }
-    // Final zero pass already included when passes%3 logic hits; ensure truncate sync
-    file.seek(SeekFrom::Start(0))?;
-    file.sync_all()?;
-    drop(file);
-
-    // Optional: rename to obscure name before unlink — skipped for honesty simplicity
-    let _ = File::open("/dev/null");
     Ok(())
-}
-
-fn fill_random(buf: &mut [u8]) {
-    // Prefer getrandom via /dev/urandom
-    if let Ok(mut f) = File::open("/dev/urandom") {
-        use std::io::Read;
-        let _ = f.read_exact(buf);
-        return;
-    }
-    // weak fallback
-    let t = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    for (i, b) in buf.iter_mut().enumerate() {
-        *b = ((t.wrapping_mul(i as u64 + 1)) & 0xFF) as u8;
-    }
 }
 
 pub fn unlink_only(path: &Path, dry_run: bool) -> Result<WipeResult> {
@@ -149,4 +141,69 @@ fn command_exists(name: &str) -> bool {
     std::env::var_os("PATH")
         .map(|paths| std::env::split_paths(&paths).any(|p| p.join(name).is_file()))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    fn temp(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("fileshred-test-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn builtin_overwrite_replaces_contents_and_unlinks() {
+        let dir = temp("overwrite");
+        let f = dir.join("secret.txt");
+        fs::write(&f, vec![b'A'; 200_000]).unwrap();
+        // Keep a second handle to see what is on disk after the overwrite pass.
+        builtin_overwrite(&f, 3).unwrap();
+        let after = fs::read(&f).unwrap();
+        assert_eq!(after.len(), 200_000, "length is preserved");
+        assert!(after.iter().all(|&b| b == 0), "three passes end on zeros");
+        let r = overwrite_and_unlink(&f, 1, false, false).unwrap();
+        assert!(r.unlinked && !f.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn refuses_a_symlink_and_leaves_the_target_untouched() {
+        let dir = temp("symlink");
+        let target = dir.join("precious.txt");
+        fs::write(&target, b"keep me").unwrap();
+        let link = dir.join("link");
+        symlink(&target, &link).unwrap();
+        let err = overwrite_and_unlink(&link, 3, false, false).unwrap_err();
+        assert!(err.to_string().contains("symlink"), "{err}");
+        assert_eq!(fs::read(&target).unwrap(), b"keep me");
+        assert!(link.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn zero_passes_is_rejected_instead_of_reporting_success() {
+        let dir = temp("zero");
+        let f = dir.join("f");
+        fs::write(&f, b"data").unwrap();
+        assert!(overwrite_and_unlink(&f, 0, false, false).is_err());
+        assert_eq!(fs::read(&f).unwrap(), b"data");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn unlink_only_removes_just_the_link() {
+        let dir = temp("unlinklink");
+        let target = dir.join("t");
+        fs::write(&target, b"x").unwrap();
+        let link = dir.join("l");
+        symlink(&target, &link).unwrap();
+        unlink_only(&link, false).unwrap();
+        assert!(!link.exists() && target.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
 }
