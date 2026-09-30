@@ -70,9 +70,7 @@ pub fn run(cli: &Cli, path: PathBuf, i_understand: bool, force: bool) -> Result<
     let target_dir = if insp.is_dir {
         path.clone()
     } else {
-        path.parent()
-            .unwrap_or(Path::new("."))
-            .to_path_buf()
+        path.parent().unwrap_or(Path::new(".")).to_path_buf()
     };
 
     fill_until_full(&target_dir)?;
@@ -84,7 +82,9 @@ pub fn run(cli: &Cli, path: PathBuf, i_understand: bool, force: bool) -> Result<
             storage_class: insp.storage_class,
             performed: true,
             dry_run: false,
-            message: "free-space fill completed and temp files removed; physical erasure NOT guaranteed".into(),
+            message:
+                "free-space fill completed and temp files removed; physical erasure NOT guaranteed"
+                    .into(),
             guaranteed_physical_erasure: false,
         },
     )?;
@@ -107,7 +107,7 @@ fn fill_until_full(dir: &Path) -> Result<()> {
             }
         };
         temps.push(p.clone());
-                loop {
+        loop {
             match file.write_all(&chunk) {
                 Ok(()) => {},
                 Err(e) if e.raw_os_error() == Some(28) /* ENOSPC */ => {

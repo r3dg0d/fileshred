@@ -25,7 +25,10 @@ pub fn overwrite_and_unlink(
             method: "dry-run".into(),
             passes,
             unlinked: false,
-            notes: vec![format!("would overwrite ({passes} passes) then unlink {}", path.display())],
+            notes: vec![format!(
+                "would overwrite ({passes} passes) then unlink {}",
+                path.display()
+            )],
         });
     }
 

@@ -103,7 +103,8 @@ pub fn run(
                     message: if cli.dry_run {
                         "dry-run complete".into()
                     } else {
-                        "best-effort overwrite+unlink completed; physical erasure NOT guaranteed".into()
+                        "best-effort overwrite+unlink completed; physical erasure NOT guaranteed"
+                            .into()
                     },
                     guaranteed_physical_erasure: guaranteed,
                 },
@@ -145,10 +146,7 @@ pub fn run(
 
             let result = if unlink_only {
                 wipe::unlink_only(&path, cli.dry_run)?
-            } else if matches!(
-                insp.storage_class,
-                StorageClass::HddTraditional
-            ) {
+            } else if matches!(insp.storage_class, StorageClass::HddTraditional) {
                 wipe::overwrite_and_unlink(&path, passes, cfg.prefer_shred, cli.dry_run)?
             } else if force {
                 // User forced: try overwrite anyway then unlink, with loud notes
@@ -160,7 +158,10 @@ pub fn run(
                         r
                     }
                     Err(e) => {
-                        output::warn(opts, &format!("overwrite failed ({e}); falling back to unlink"));
+                        output::warn(
+                            opts,
+                            &format!("overwrite failed ({e}); falling back to unlink"),
+                        );
                         wipe::unlink_only(&path, cli.dry_run)?
                     }
                 }
@@ -181,7 +182,8 @@ pub fn run(
                         notes: result.notes,
                     }),
                     refused: false,
-                    message: "completed best-effort operation; physical erasure NOT guaranteed".into(),
+                    message: "completed best-effort operation; physical erasure NOT guaranteed"
+                        .into(),
                     guaranteed_physical_erasure: false,
                 },
             )?;
@@ -210,7 +212,10 @@ fn emit(opts: output::OutputOpts, out: &DeleteOut) -> Result<()> {
         print_json(opts, out)?;
     } else if !opts.quiet {
         println!("{}", out.message);
-        println!("guaranteed_physical_erasure: {}", out.guaranteed_physical_erasure);
+        println!(
+            "guaranteed_physical_erasure: {}",
+            out.guaranteed_physical_erasure
+        );
         if let Some(ref r) = out.result {
             println!("method: {}", r.method);
             println!("unlinked: {}", r.unlinked);

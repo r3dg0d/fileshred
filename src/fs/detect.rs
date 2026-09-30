@@ -49,9 +49,7 @@ pub fn inspect_path(path: &Path) -> Result<PathInspection> {
         .unwrap_or_default();
     let source_device = mount.as_ref().map(|m| m.source.clone());
 
-    let rotational = source_device
-        .as_ref()
-        .and_then(|s| detect_rotational(s));
+    let rotational = source_device.as_ref().and_then(|s| detect_rotational(s));
 
     let (storage_class, mut notes) = classify_storage(
         filesystem_type.as_deref(),
@@ -189,8 +187,7 @@ pub fn block_base(name: &str) -> String {
         }
         return name.to_string();
     }
-    name
-        .trim_end_matches(|c: char| c.is_ascii_digit())
+    name.trim_end_matches(|c: char| c.is_ascii_digit())
         .to_string()
 }
 
@@ -208,10 +205,17 @@ fn classify_storage(
         return (StorageClass::CowFilesystem, notes);
     }
     if fs.contains("zfs") {
-        notes.push("ZFS is CoW with datasets/snapshots; secure overwrite is not meaningful.".into());
+        notes
+            .push("ZFS is CoW with datasets/snapshots; secure overwrite is not meaningful.".into());
         return (StorageClass::CowFilesystem, notes);
     }
-    if fs == "nfs" || fs == "nfs4" || fs == "cifs" || fs == "smb3" || fs == "fuse" || fs.starts_with("fuse.") {
+    if fs == "nfs"
+        || fs == "nfs4"
+        || fs == "cifs"
+        || fs == "smb3"
+        || fs == "fuse"
+        || fs.starts_with("fuse.")
+    {
         notes.push("Network/FUSE filesystem: physical media is remote or abstracted.".into());
         return (StorageClass::NetworkOrVirtual, notes);
     }
@@ -220,7 +224,10 @@ fn classify_storage(
         return (StorageClass::NetworkOrVirtual, notes);
     }
 
-    if options.iter().any(|o| o.starts_with("subvol") || o == "compress" || o.starts_with("compress=")) {
+    if options
+        .iter()
+        .any(|o| o.starts_with("subvol") || o == "compress" || o.starts_with("compress="))
+    {
         notes.push("Mount options suggest CoW/compression features.".into());
     }
 

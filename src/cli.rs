@@ -32,9 +32,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     /// Inspect path filesystem/storage and whether overwrite is meaningful
-    Inspect {
-        path: PathBuf,
-    },
+    Inspect { path: PathBuf },
     /// Print educational explanation of secure-delete limitations
     Explain,
     /// Best-effort delete (overwrite when meaningful; otherwise refuse or require ack)
